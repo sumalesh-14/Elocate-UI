@@ -8,7 +8,7 @@ import { calculateDistance } from "../utils/calculateLocation";
 import MapboxGeocoder from "@mapbox/mapbox-gl-geocoder";
 import "@mapbox/mapbox-gl-geocoder/dist/mapbox-gl-geocoder.css";
 import Link from "next/link";
-import { facility } from "../data/facility";
+import { fetchFacilities } from "../utils/facilityApi";
 import Head from "next/head";
 
 interface Facility {
@@ -82,135 +82,152 @@ const FacilityMap: React.FC = () => {
       console.error('Geolocation is not supported by this browser.');
     }
   };
-  
+
   const filteredFacilities = () => {
     if (!facilityData.length) return [];
-    
+
     let filtered = [...facilityData];
-    
+
     if (filterVerified) {
       filtered = filtered.filter(f => f.verified);
     }
-    
+
     if (filterDistance !== null) {
       filtered = filtered.filter(f => f.distance <= filterDistance);
     }
-    
+
     return filtered;
   };
 
   useEffect(() => {
     if (clientLocation) {
-      const sortedFacilities = facility
-        .map((facility) => ({
-          ...facility,
-          distance: calculateDistance(
-            clientLocation[1],
-            clientLocation[0],
-            facility.lat,
-            facility.lon
-          ),
-        }))
-        .sort((a, b) => a.distance - b.distance);
+      // Fetch facilities from API (with automatic fallback to static data)
+      const loadFacilities = async () => {
+        setIsLoading(true);
+        const facilities = await fetchFacilities();
 
-      setFacilityData(sortedFacilities);
+        const sortedFacilities = facilities
+          .map((facility) => ({
+            ...facility,
+            distance: calculateDistance(
+              clientLocation[1],
+              clientLocation[0],
+              facility.lat,
+              facility.lon
+            ),
+          }))
+          .sort((a, b) => a.distance - b.distance);
 
-      const map = new mapboxgl.Map({
-        container: mapContainerRef.current!,
-        style: "mapbox://styles/mapbox/streets-v11",
-        center: clientLocation,
-        zoom: 10,
-      });
+        setFacilityData(sortedFacilities);
+        setIsLoading(false);
+      };
 
-      mapRef.current = map;
-      const geocoder = new MapboxGeocoder({
-        accessToken: mapboxgl.accessToken,
-        mapboxgl: mapboxgl,
-        placeholder: "Search for your location",
-      });
+      loadFacilities();
+    }
+  }, [clientLocation]);
 
-      map.addControl(geocoder);
+  // Separate useEffect for map initialization - runs after facilityData is loaded
+  useEffect(() => {
+    if (!clientLocation || facilityData.length === 0) {
+      return;
+    }
 
-      geocoder.on(
-        "result",
-        (event: { result: { geometry: any; place_name: any } }) => {
-          const { geometry, place_name } = event.result;
+    const map = new mapboxgl.Map({
+      container: mapContainerRef.current!,
+      style: "mapbox://styles/mapbox/streets-v11",
+      center: clientLocation,
+      zoom: 10,
+    });
 
-          if (geometry && geometry.coordinates) {
-            const center = geometry.coordinates;
+    mapRef.current = map;
+    const geocoder = new MapboxGeocoder({
+      accessToken: mapboxgl.accessToken,
+      mapboxgl: mapboxgl,
+      placeholder: "Search for your location",
+    });
 
-            // Remove previous markers if they exist
-            if (userMarkerRef.current) {
-              userMarkerRef.current.remove();
-            }
+    map.addControl(geocoder);
 
-            const selectedLocationMarker = new mapboxgl.Marker({
-              color: "#3366ff",
-              scale: 1.2
-            })
-              .setLngLat(center)
-              .addTo(map);
+    geocoder.on(
+      "result",
+      (event: { result: { geometry: any; place_name: any } }) => {
+        const { geometry, place_name } = event.result;
 
-            userMarkerRef.current = selectedLocationMarker;
+        if (geometry && geometry.coordinates) {
+          const center = geometry.coordinates;
 
-            const popup = new Popup().setHTML(
-              `<div class="p-2">
+          // Remove previous markers if they exist
+          if (userMarkerRef.current) {
+            userMarkerRef.current.remove();
+          }
+
+          const selectedLocationMarker = new mapboxgl.Marker({
+            color: "#3366ff",
+            scale: 1.2
+          })
+            .setLngLat(center)
+            .addTo(map);
+
+          userMarkerRef.current = selectedLocationMarker;
+
+          const popup = new Popup().setHTML(
+            `<div class="p-2">
                 <h3 class="font-bold text-indigo-600 text-lg mb-1">Selected Location</h3>
                 <p class="text-sm text-gray-700">Address: ${place_name || "Address not available"}</p>
               </div>`
-            );
+          );
 
-            selectedLocationMarker.setPopup(popup);
+          selectedLocationMarker.setPopup(popup);
 
-            // Recalculate distances based on new location
-            const recalculatedFacilities = facility
-              .map((facility) => ({
-                ...facility,
-                distance: calculateDistance(
-                  center[1],
-                  center[0],
-                  facility.lat,
-                  facility.lon
-                ),
-              }))
-              .sort((a, b) => a.distance - b.distance);
+          // Recalculate distances based on new location
+          const recalculatedFacilities = facilityData
+            .map((facility) => ({
+              ...facility,
+              distance: calculateDistance(
+                center[1],
+                center[0],
+                facility.lat,
+                facility.lon
+              ),
+            }))
+            .sort((a, b) => a.distance - b.distance);
 
-            setFacilityData(recalculatedFacilities);
-            setClientLocation([center[0], center[1]]);
+          setFacilityData(recalculatedFacilities);
+          setClientLocation([center[0], center[1]]);
 
-            // Find the nearest facility
-            const nearestFacility = recalculatedFacilities[0];
-            getDirections(center, [nearestFacility.lon, nearestFacility.lat]);
-            setSelectedFacility(0);
-          }
+          // Find the nearest facility
+          const nearestFacility = recalculatedFacilities[0];
+          getDirections(center, [nearestFacility.lon, nearestFacility.lat]);
+          setSelectedFacility(0);
         }
-      );
+      }
+    );
 
-      map.addControl(new mapboxgl.NavigationControl(), "bottom-right");
+    map.addControl(new mapboxgl.NavigationControl(), "bottom-right");
 
-      const userMarker = new mapboxgl.Marker({ 
-        color: "#3366ff",
-        scale: 1.2 
-      })
-        .setLngLat(clientLocation)
-        .addTo(map);
-        
-      const userPopup = new Popup().setHTML(
-        `<div class="p-2">
+    const userMarker = new mapboxgl.Marker({
+      color: "#3366ff",
+      scale: 1.2
+    })
+      .setLngLat(clientLocation)
+      .addTo(map);
+
+    const userPopup = new Popup().setHTML(
+      `<div class="p-2">
           <h3 class="font-bold text-indigo-600 text-lg mb-1">Your Location</h3>
         </div>`
-      );
-      
-      userMarker.setPopup(userPopup);
-      userMarkerRef.current = userMarker;
+    );
 
-      // Clear existing markers
-      markersRef.current.forEach(marker => marker.remove());
-      markersRef.current = [];
+    userMarker.setPopup(userPopup);
+    userMarkerRef.current = userMarker;
 
-      sortedFacilities.forEach((facility, index) => {
-        const popup = new Popup().setHTML(
-          `<div class="p-3">
+    // Clear existing markers
+    markersRef.current.forEach(marker => marker.remove());
+    markersRef.current = [];
+
+    facilityData.forEach((facility, index) => {
+      const popup = new Popup().setHTML(
+        `<div class="p-3">
             <h3 class="font-bold text-emerald-600 text-xl mb-2">${facility.name}</h3>
             <div class="flex items-center text-sm mb-1">
               <span class="font-semibold mr-2">Capacity:</span>
@@ -232,52 +249,50 @@ const FacilityMap: React.FC = () => {
               <span>${facility.distance.toFixed(2)} km from your location</span>
             </div>
           </div>`
-        );
+      );
 
-        const marker = new mapboxgl.Marker({
-          color: facility.verified ? "#10b981" : "#f97316",
-          scale: selectedFacility === index ? 1.2 : 1
-        })
-          .setLngLat([facility.lon, facility.lat])
-          .setPopup(popup);
+      const marker = new mapboxgl.Marker({
+        color: facility.verified ? "#10b981" : "#f97316",
+        scale: selectedFacility === index ? 1.2 : 1
+      })
+        .setLngLat([facility.lon, facility.lat])
+        .setPopup(popup);
 
-        markersRef.current.push(marker);
+      markersRef.current.push(marker);
 
-        marker.addTo(map);
+      marker.addTo(map);
 
-        marker.getElement().addEventListener("click", () => {
-          const marker = markersRef.current[index];
-          const popup = marker.getPopup();
+      marker.getElement().addEventListener("click", () => {
+        const marker = markersRef.current[index];
+        const popup = marker.getPopup();
 
-          if (popup) {
-            if (popup.isOpen()) {
-              popup.remove();
-            } else {
-              popup.addTo(mapRef.current!);
-            }
+        if (popup) {
+          if (popup.isOpen()) {
+            popup.remove();
+          } else {
+            popup.addTo(mapRef.current!);
           }
-          setSelectedFacility(index);
-        });
-
-        popup.on("close", () => {
-          setSelectedFacility(null);
-        });
+        }
+        setSelectedFacility(index);
       });
 
-      return () => {
-        map.remove();
-      };
-    }
-  }, [clientLocation, selectedFacility]);
+      popup.on("close", () => {
+        setSelectedFacility(null);
+      });
+    });
+
+    return () => {
+      map.remove();
+    };
+  }, [clientLocation, selectedFacility, facilityData.length]);
 
   // Update markers when selected facility changes
   useEffect(() => {
     if (markersRef.current && mapRef.current) {
       markersRef.current.forEach((marker, index) => {
-        marker.getElement().className = `mapboxgl-marker mapboxgl-marker-anchor-center ${
-          selectedFacility === index ? "pulse-marker" : ""
-        }`;
-        
+        marker.getElement().className = `mapboxgl-marker mapboxgl-marker-anchor-center ${selectedFacility === index ? "pulse-marker" : ""
+          }`;
+
         // Update marker scale
         if (selectedFacility === index) {
           marker.setDraggable(false);
@@ -371,12 +386,12 @@ const FacilityMap: React.FC = () => {
     ) {
       const cardHeight = 220; // Approximate height of each card
       const scrollPosition = selectedFacility * cardHeight;
-      
+
       cardContainerRef.current.scrollTo({
         top: scrollPosition,
         behavior: "smooth",
       });
-      
+
       // Get directions from current location to selected facility
       if (clientLocation && selectedFacility < facilityData.length) {
         const selected = facilityData[selectedFacility];
@@ -391,7 +406,7 @@ const FacilityMap: React.FC = () => {
         <title>ELocate - Find Nearby E-Waste Recycling Facilities</title>
         <meta name="description" content="Locate certified e-waste recycling facilities near you. Get directions, facility details, and book recycling services with our interactive map." />
       </Head>
-    
+
       <div className="min-h-screen bg-gray-50 e-facilities-container">
         {isLoading ? (
           <div className="flex items-center justify-center h-screen">
@@ -408,7 +423,7 @@ const FacilityMap: React.FC = () => {
                 Find certified e-waste collection and recycling centers near you. Get directions, check facility details, and book recycling services.
               </p>
             </div>
-            
+
             <div className="mb-6 flex flex-wrap gap-4 justify-center">
               <div className="bg-white p-3 rounded-lg shadow-sm flex items-center">
                 <span className="w-4 h-4 rounded-full bg-green-500 mr-2"></span>
@@ -423,21 +438,21 @@ const FacilityMap: React.FC = () => {
                 <span className="text-gray-700">Your Location</span>
               </div>
             </div>
-            
+
             <div className="flex flex-col lg:flex-row gap-6">
               <div className="lg:w-1/3 flex flex-col">
                 <div className="bg-white p-4 rounded-lg shadow-md mb-4">
                   <h2 className="font-bold text-xl mb-3 text-gray-800">Filter Facilities</h2>
-                  
+
                   <div className="flex gap-4 mb-4 flex-wrap">
-                    <button 
+                    <button
                       className={`px-4 py-2 rounded-md ${filterVerified ? 'bg-emerald-500 text-white' : 'bg-gray-100 text-gray-700'}`}
                       onClick={() => setFilterVerified(!filterVerified)}
                     >
                       Verified Only
                     </button>
-                    
-                    <select 
+
+                    <select
                       className="px-4 py-2 rounded-md border border-gray-200 bg-gray-100"
                       value={filterDistance || ""}
                       onChange={(e) => setFilterDistance(e.target.value ? parseInt(e.target.value) : null)}
@@ -450,7 +465,7 @@ const FacilityMap: React.FC = () => {
                     </select>
                   </div>
                 </div>
-                
+
                 <div
                   ref={cardContainerRef}
                   className="flex-grow bg-gray-50 rounded-lg overflow-y-auto max-h-[70vh] p-1"
@@ -480,7 +495,7 @@ const FacilityMap: React.FC = () => {
                             </div>
                           )}
                         </div>
-                        
+
                         <div className="mb-3 space-y-1 text-gray-600">
                           <div className="flex items-start">
                             <FaMapMarkerAlt className="text-gray-400 mt-1 mr-2 flex-shrink-0" />
@@ -498,7 +513,7 @@ const FacilityMap: React.FC = () => {
                             {info.distance.toFixed(2)} km away
                           </p>
                         </div>
-                        
+
                         <div className="flex space-x-2">
                           <button
                             className="flex-1 flex items-center justify-center bg-indigo-500 hover:bg-indigo-600 text-white px-4 py-2 rounded-md text-sm font-medium transition-colors"
@@ -530,10 +545,10 @@ const FacilityMap: React.FC = () => {
                   )}
                 </div>
               </div>
-              
-              <div 
-                ref={mapContainerRef} 
-                id="map" 
+
+              <div
+                ref={mapContainerRef}
+                id="map"
                 className="lg:w-2/3 h-[75vh] rounded-lg shadow-md"
               />
             </div>
@@ -545,17 +560,17 @@ const FacilityMap: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-              
+
               <h2 className="text-2xl font-bold text-gray-800 mb-4">
                 Location Access Required
               </h2>
-              
+
               <p className="text-gray-600 mb-8">
                 We need access to your location to show you nearby e-waste recycling facilities. Please enable location services in your browser settings.
               </p>
-              
-              <button 
-                onClick={handleAllowLocationClick} 
+
+              <button
+                onClick={handleAllowLocationClick}
                 className="bg-emerald-500 hover:bg-emerald-600 text-white font-medium py-3 px-6 rounded-md transition-colors duration-300"
               >
                 Allow Location Access
@@ -564,7 +579,7 @@ const FacilityMap: React.FC = () => {
           </div>
         )}
       </div>
-      
+
       <style jsx global>{`
         .mapboxgl-popup-content {
           padding: 0;
