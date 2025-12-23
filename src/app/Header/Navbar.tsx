@@ -78,7 +78,7 @@ const Header = () => {
     };
   }, []);
 
-const user = getUser();
+  const user = getUser();
 
   const toggleNavbar = () => {
     setIsNavbarActive(!isNavbarActive);
@@ -119,6 +119,7 @@ const user = getUser();
             <NavItem label="Home" />
             <NavItem label="About" />
             <NavItem label="E-Facilities" />
+            <NavItem label='Book-Recycle' />
             <NavItem label="Recycle" />
             <NavItem label="Education" />
             <NavItem label="Contactus" />
@@ -153,11 +154,11 @@ const user = getUser();
               </div>
             )}
           </div>
-                ) : (
-                  <>
-                      <Link href="/sign-in" className="btn-md btn-outline md:mr-4">SignIn</Link>
-                  </>
-                )}
+        ) : (
+          <>
+            <Link href="/sign-in" className="btn-md btn-outline md:mr-4">SignIn</Link>
+          </>
+        )}
         <button
           className="nav-open-btn"
           aria-label="open menu"
