@@ -106,17 +106,17 @@ const FacilityMap: React.FC = () => {
         setIsLoading(true);
         const facilities = await fetchFacilities();
 
-        // const sortedFacilities = facilities
-        //   .map((facility) => ({
-        //     ...facility,
-        //     distance: calculateDistance(
-        //       clientLocation[1],
-        //       clientLocation[0],
-        //       facility.lat,
-        //       facility.lon
-        //     ),
-        //   }))
-        //   .sort((a, b) => a.distance - b.distance);
+        const sortedFacilities = facilities
+          .map((facility) => ({
+            ...facility,
+            distance: calculateDistance(
+              clientLocation[1],
+              clientLocation[0],
+              facility.lat,
+              facility.lon
+            ),
+          }))
+          .sort((a, b) => a.distance - b.distance);
 
         setFacilityData(sortedFacilities);
         setIsLoading(false);
