@@ -29,17 +29,30 @@ const Signin: React.FC = () => {
   const login = async () => {
     toast.loading("Loading..")
     try {
+      // DUMMY BYPASS - Comment out this section and uncomment the API call below for production
+      const user = {
+        id: "dummy-user-id-123",
+        email: formData.email || "test@example.com",
+        token: "dummy-jwt-token-for-testing",
+        phoneNumber: "1234567890",
+        fullname: "Test User",
+        username: "testuser",
+      };
+
+      /* ORIGINAL API CALL - Uncomment for production
       const response = await axios.post(
-        "http://localhost:8080/elocate/api/v1auth/login",
+        "http://localhost:8080/elocate/api/v1/auth/login",
         formData
       );
-      const  user  = response.data;
+      const user = response.data;
+      */
+
       console.log(user);
-  
+
       localStorage.setItem("user", JSON.stringify(user));
-  
+
       toast.success("Login Successful!");
-  
+
       if (user) {
         setUser(user);
         setEmail(user.email);
@@ -51,7 +64,7 @@ const Signin: React.FC = () => {
           setUserName(user.username);
         }
       }
-  
+
       window.location.href = "/";
     } catch (error) {
       console.error("Login failed:", error);
